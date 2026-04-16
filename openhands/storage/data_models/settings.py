@@ -16,6 +16,7 @@ from pydantic import (
 
 from openhands.core.config.llm_config import LLMConfig
 from openhands.core.config.utils import load_openhands_config
+
 # The LLM/ACP variant types, ``AgentSettingsConfig`` union alias, and the
 # validate/default helpers are new in the discriminated-union rework.
 # Pre-commit mypy pins ``openhands-sdk==1.17.0`` (without these symbols);
@@ -136,9 +137,7 @@ class Settings(BaseModel):
     git_user_name: str | None = None
     git_user_email: str | None = None
     v1_enabled: bool = True
-    agent_settings: AgentSettingsConfig = Field(
-        default_factory=default_agent_settings
-    )
+    agent_settings: AgentSettingsConfig = Field(default_factory=default_agent_settings)
     conversation_settings: ConversationSettings = Field(
         default_factory=ConversationSettings
     )

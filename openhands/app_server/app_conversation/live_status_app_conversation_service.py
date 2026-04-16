@@ -90,15 +90,15 @@ from openhands.integrations.provider import PROVIDER_TOKEN_TYPE, ProviderType
 from openhands.integrations.service_types import SuggestedTask
 from openhands.sdk import Agent, AgentContext, LocalWorkspace
 from openhands.sdk.agent.acp_agent import ACPAgent
+from openhands.sdk.hooks import HookConfig
+from openhands.sdk.llm import LLM
+from openhands.sdk.plugin import PluginSource
+from openhands.sdk.secret import LookupSecret, StaticSecret
 
 # ``ACPAgentSettings`` is new in the discriminated-union rework. Pre-commit
 # mypy pins ``openhands-sdk==1.17.0`` (without this symbol); the editable
 # install exposes it. Remove the ignore once the SDK ships.
 from openhands.sdk.settings import ACPAgentSettings  # type: ignore[attr-defined]
-from openhands.sdk.hooks import HookConfig
-from openhands.sdk.llm import LLM
-from openhands.sdk.plugin import PluginSource
-from openhands.sdk.secret import LookupSecret, StaticSecret
 from openhands.sdk.utils.paging import page_iterator
 from openhands.sdk.workspace.remote.async_remote_workspace import AsyncRemoteWorkspace
 from openhands.server.types import AppMode
@@ -1443,9 +1443,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             }
         )
 
-        return conv_settings.create_request(
-            StartACPConversationRequest, agent=agent
-        )
+        return conv_settings.create_request(StartACPConversationRequest, agent=agent)
 
     async def _process_pending_messages(
         self,

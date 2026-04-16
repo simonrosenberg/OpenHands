@@ -11,8 +11,10 @@ from openhands.integrations.service_types import UserGitInfo
 from openhands.sdk.llm import LLM
 from openhands.sdk.settings import (
     ConversationSettings,
-    LLMAgentSettings as AgentSettings,
     VerificationSettings,
+)
+from openhands.sdk.settings import (
+    LLMAgentSettings as AgentSettings,
 )
 from openhands.server.app import app
 from openhands.server.user_auth.user_auth import UserAuth

@@ -15,6 +15,7 @@ from openhands.integrations.provider import (
     PROVIDER_TOKEN_TYPE,
     ProviderType,
 )
+
 # ``export_agent_settings_schema`` is new in the discriminated-union rework.
 # Pre-commit mypy pins ``openhands-sdk==1.17.0``; the editable install
 # exposes it. Remove the ignore once the SDK ships.
