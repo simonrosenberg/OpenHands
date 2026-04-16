@@ -13,9 +13,11 @@ from openhands.sdk.settings import (
     ConversationSettings,
     VerificationSettings,
 )
-from openhands.sdk.settings import (
-    LLMAgentSettings as AgentSettings,
-)
+
+try:
+    from openhands.sdk.settings import LLMAgentSettings as AgentSettings
+except ImportError:
+    from openhands.sdk.settings import AgentSettings
 from openhands.server.app import app
 from openhands.server.user_auth.user_auth import UserAuth
 from openhands.storage.data_models.secrets import Secrets

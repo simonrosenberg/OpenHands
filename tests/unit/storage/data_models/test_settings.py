@@ -13,9 +13,11 @@ from openhands.sdk.settings import (
     AGENT_SETTINGS_SCHEMA_VERSION,
     ConversationSettings,
 )
-from openhands.sdk.settings import (
-    LLMAgentSettings as AgentSettings,
-)
+
+try:
+    from openhands.sdk.settings import LLMAgentSettings as AgentSettings
+except ImportError:
+    from openhands.sdk.settings import AgentSettings
 from openhands.sdk.settings.model import CondenserSettings, VerificationSettings
 from openhands.storage.data_models.settings import Settings
 
