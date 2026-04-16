@@ -13,7 +13,7 @@ from openhands.integrations.service_types import ProviderType
 from openhands.sdk.llm import LLM
 from openhands.sdk.settings import (
     AGENT_SETTINGS_SCHEMA_VERSION,
-    AgentSettings,
+    LLMAgentSettings as AgentSettings,
     ConversationSettings,
 )
 from openhands.server.routes.secrets import (

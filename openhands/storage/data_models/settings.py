@@ -16,7 +16,18 @@ from pydantic import (
 
 from openhands.core.config.llm_config import LLMConfig
 from openhands.core.config.utils import load_openhands_config
-from openhands.sdk.settings import AgentSettings, ConversationSettings
+# The LLM/ACP variant types and the validate/default helpers are new in
+# the discriminated-union rework. Pre-commit mypy pins ``openhands-sdk==1.17.0``
+# (without these symbols); the editable install exposes them. Remove the
+# ignore once the SDK ships.
+from openhands.sdk.settings import (  # type: ignore[attr-defined]
+    ACPAgentSettings,
+    AgentSettings,
+    ConversationSettings,
+    LLMAgentSettings,
+    default_agent_settings,
+    validate_agent_settings,
+)
 from openhands.storage.data_models.secrets import Secrets
 from openhands.utils.jsonpatch_compat import deep_merge
 
@@ -121,7 +132,7 @@ class Settings(BaseModel):
     git_user_name: str | None = None
     git_user_email: str | None = None
     v1_enabled: bool = True
-    agent_settings: AgentSettings = Field(default_factory=AgentSettings)
+    agent_settings: AgentSettings = Field(default_factory=default_agent_settings)
     conversation_settings: ConversationSettings = Field(
         default_factory=ConversationSettings
     )
@@ -174,9 +185,10 @@ class Settings(BaseModel):
                     merged['mcp_config'] = mcp_config
 
                 # Use object.__setattr__ to avoid validate_assignment
-                # side-effects on other fields.
+                # side-effects on other fields. ``AgentSettings`` is a
+                # discriminated union, so go through the type adapter.
                 object.__setattr__(
-                    self, 'agent_settings', AgentSettings.model_validate(merged)
+                    self, 'agent_settings', validate_agent_settings(merged)
                 )
 
         if 'conversation_settings' in payload:
@@ -240,10 +252,12 @@ class Settings(BaseModel):
             return data
 
         # --- Agent settings: coerce SecretStr leaves to plain strings ---
+        # ``AgentSettings`` is a discriminated union; accept either
+        # concrete variant.
         agent_settings = data.get('agent_settings')
         if isinstance(agent_settings, dict):
             data['agent_settings'] = _coerce_dict_secrets(agent_settings)
-        elif isinstance(agent_settings, AgentSettings):
+        elif isinstance(agent_settings, (LLMAgentSettings, ACPAgentSettings)):
             data['agent_settings'] = agent_settings.model_dump(
                 mode='json', context={'expose_secrets': True}
             )
@@ -312,7 +326,10 @@ class Settings(BaseModel):
             remote_runtime_resource_factor=app_config.sandbox.remote_runtime_resource_factor,
             search_api_key=app_config.search_api_key,
             max_budget_per_task=app_config.max_budget_per_task,
-            agent_settings=AgentSettings(**agent_settings_dict),
+            # ``from_config`` only loads LLM-agent fields, so build the LLM
+            # variant directly. To configure an ACP agent, use the GUI or
+            # API to set ``agent_kind='acp'``.
+            agent_settings=LLMAgentSettings(**agent_settings_dict),
             conversation_settings=ConversationSettings.model_validate(
                 {
                     'confirmation_mode': bool(app_config.security.confirmation_mode),

@@ -39,7 +39,7 @@ from openhands.integrations.service_types import SuggestedTask, TaskType
 from openhands.sdk import Agent, Event
 from openhands.sdk.llm import LLM
 from openhands.sdk.secret import LookupSecret, StaticSecret
-from openhands.sdk.settings import AgentSettings, ConversationSettings
+from openhands.sdk.settings import LLMAgentSettings as AgentSettings, ConversationSettings
 from openhands.sdk.workspace.remote.async_remote_workspace import AsyncRemoteWorkspace
 from openhands.server.types import AppMode
 from openhands.storage.data_models.conversation_metadata import ConversationTrigger

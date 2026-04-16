@@ -11,7 +11,7 @@ from openhands.core.config.security_config import SecurityConfig
 from openhands.sdk.llm import LLM
 from openhands.sdk.settings import (
     AGENT_SETTINGS_SCHEMA_VERSION,
-    AgentSettings,
+    LLMAgentSettings as AgentSettings,
     ConversationSettings,
 )
 from openhands.sdk.settings.model import CondenserSettings, VerificationSettings

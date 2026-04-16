@@ -10,8 +10,8 @@ from openhands.integrations.provider import ProviderToken, ProviderType
 from openhands.integrations.service_types import UserGitInfo
 from openhands.sdk.llm import LLM
 from openhands.sdk.settings import (
-    AgentSettings,
     ConversationSettings,
+    LLMAgentSettings as AgentSettings,
     VerificationSettings,
 )
 from openhands.server.app import app

@@ -15,8 +15,10 @@ from fastapi import Request
 from pydantic import Field, SecretStr, TypeAdapter
 
 from openhands.agent_server.models import (
+    ACPConversationInfo,
     ConversationInfo,
     SendMessageRequest,
+    StartACPConversationRequest,
     StartConversationRequest,
     TextContent,
 )
@@ -87,6 +89,12 @@ from openhands.app_server.utils.llm_metadata import (
 from openhands.integrations.provider import PROVIDER_TOKEN_TYPE, ProviderType
 from openhands.integrations.service_types import SuggestedTask
 from openhands.sdk import Agent, AgentContext, LocalWorkspace
+from openhands.sdk.agent.acp_agent import ACPAgent
+
+# ``ACPAgentSettings`` is new in the discriminated-union rework. Pre-commit
+# mypy pins ``openhands-sdk==1.17.0`` (without this symbol); the editable
+# install exposes it. Remove the ignore once the SDK ships.
+from openhands.sdk.settings import ACPAgentSettings  # type: ignore[attr-defined]
 from openhands.sdk.hooks import HookConfig
 from openhands.sdk.llm import LLM
 from openhands.sdk.plugin import PluginSource
@@ -314,15 +322,25 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             task.agent_server_url = agent_server_url
             yield task
 
-            # Start conversation...
+            # Start conversation — ACP-backed requests go to the ACP
+            # router (``/api/acp/conversations``) which accepts the
+            # ``ACPEnabledAgent`` union; the legacy Agent-only
+            # endpoint stays at ``/api/conversations``.
+            is_acp_request = isinstance(
+                start_conversation_request, StartACPConversationRequest
+            )
+            conversation_path = (
+                '/api/acp/conversations' if is_acp_request else '/api/conversations'
+            )
             body_json = start_conversation_request.model_dump(
                 mode='json', context={'expose_secrets': True}
             )
-            # Log hook_config to verify it's being passed
             hook_config_in_request = body_json.get('hook_config')
             _logger.debug(
-                f'Sending StartConversationRequest with hook_config: '
-                f'{hook_config_in_request}'
+                'Sending %s to %s with hook_config: %s',
+                type(start_conversation_request).__name__,
+                conversation_path,
+                hook_config_in_request,
             )
             headers = (
                 {'X-Session-API-Key': sandbox.session_api_key}
@@ -330,23 +348,34 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 else {}
             )
             response = await self.httpx_client.post(
-                f'{agent_server_url}/api/conversations',
+                f'{agent_server_url}{conversation_path}',
                 json=body_json,
                 headers=headers,
                 timeout=self.sandbox_startup_timeout,
             )
 
             response.raise_for_status()
-            info = ConversationInfo.model_validate(response.json())
+            info: ConversationInfo | ACPConversationInfo
+            if is_acp_request:
+                info = ACPConversationInfo.model_validate(response.json())
+            else:
+                info = ConversationInfo.model_validate(response.json())
 
-            # Store info...
+            # Store info. For ACP agents the ``agent.llm`` field is a
+            # dummy sentinel; prefer ``acp_model`` (the real provider
+            # model) so the conversation list shows a meaningful name.
             user_id = await self.user_context.get_user_id()
+            agent_obj = start_conversation_request.agent
+            if isinstance(agent_obj, ACPAgent):
+                display_model = agent_obj.acp_model or agent_obj.llm.model
+            else:
+                display_model = agent_obj.llm.model
             app_conversation_info = AppConversationInfo(
                 id=info.id,
                 title=f'Conversation {info.id.hex[:5]}',
                 sandbox_id=sandbox.id,
                 created_by_user_id=user_id,
-                llm_model=start_conversation_request.agent.llm.model,
+                llm_model=display_model,
                 # Git parameters
                 selected_repository=request.selected_repository,
                 selected_branch=request.selected_branch,
@@ -1225,20 +1254,38 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         remote_workspace: AsyncRemoteWorkspace | None = None,
         selected_repository: str | None = None,
         plugins: list[PluginSpec] | None = None,
-    ) -> StartConversationRequest:
-        """Build a complete StartConversationRequest for a user.
+    ) -> StartConversationRequest | StartACPConversationRequest:
+        """Build a conversation-start request for the user.
 
-        Resolves LLM, MCP, tools, secrets and agent context, then
-        builds the ``Agent`` via ``AgentSettings.create_agent()``.
-        Server-only overrides (system prompts, LLM tracing metadata,
-        skills, hooks) are applied to the agent after creation.
-        Finally delegates to ``ConversationSettings.create_request()``.
+        ``user.agent_settings`` is a discriminated union — either
+        ``LLMAgentSettings`` (standard Agent) or ``ACPAgentSettings``
+        (ACP-delegating ACPAgent). This method dispatches on the
+        variant and returns the matching request type:
+
+        - ``StartConversationRequest`` (LLM agent) — server-only
+          overrides (system prompts, LLM tracing metadata, skills,
+          hooks) are applied to the agent after ``create_agent()``.
+        - ``StartACPConversationRequest`` (ACP agent) — those
+          server-only overrides are **not** applied: the ACP
+          subprocess owns its own system prompt, tools, and agent
+          context, so hooks/skills/MCP do not apply.
         """
         user = await self.user_context.get_user_info()
 
         project_dir = get_project_dir(working_dir, selected_repository)
         workspace = LocalWorkspace(working_dir=project_dir)
 
+        # Dispatch on the discriminated-union variant.
+        if isinstance(user.agent_settings, ACPAgentSettings):
+            return await self._build_acp_start_conversation_request(
+                user=user,
+                conversation_id=conversation_id,
+                initial_message=initial_message,
+                workspace=workspace,
+                plugins=plugins,
+            )
+
+        # --- LLM-agent path (default) --------------------------------------
         # --- secrets --------------------------------------------------------
         secrets = await self._setup_secrets_for_git_providers(user)
 
@@ -1266,7 +1313,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         else:
             tools = get_default_tools(enable_browser=True)
 
-        # --- build AgentSettings and create agent ---------------------------
+        # --- build LLMAgentSettings and create agent ------------------------
         from fastmcp.mcp_config import MCPConfig
 
         configured_agent_settings = user.agent_settings.model_copy(
@@ -1347,6 +1394,58 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         # Pass agent explicitly — it has server-only overrides (system
         # prompts, LLM metadata, skills) applied after create_agent().
         return conv_settings.create_request(StartConversationRequest, agent=agent)
+
+    async def _build_acp_start_conversation_request(
+        self,
+        user: UserInfo,
+        conversation_id: UUID,
+        initial_message: SendMessageRequest | None,
+        workspace: LocalWorkspace,
+        plugins: list[PluginSpec] | None,
+    ) -> StartACPConversationRequest:
+        """Build a ``StartACPConversationRequest`` from ACP agent settings.
+
+        The ACP subprocess owns its own system prompt, tools, context,
+        and MCP, so all the LLM-agent-path customization (skills
+        loading, system-prompt overrides, LLM tracing metadata,
+        hook-config discovery in the workspace) is deliberately
+        skipped here.
+        """
+        acp_settings = user.agent_settings
+        assert isinstance(acp_settings, ACPAgentSettings)
+
+        agent = acp_settings.create_agent()
+
+        final_initial_message = self._construct_initial_message_with_plugin_params(
+            initial_message, plugins
+        )
+        sdk_plugins: list[PluginSource] | None = None
+        if plugins:
+            sdk_plugins = [
+                PluginSource(
+                    source=p.source,
+                    ref=p.ref,
+                    repo_path=p.repo_path,
+                )
+                for p in plugins
+            ]
+
+        conv_settings = user.conversation_settings.model_copy(
+            update={
+                'agent_settings': acp_settings,
+                'workspace': workspace,
+                'conversation_id': conversation_id,
+                'initial_message': final_initial_message,
+                'plugins': sdk_plugins,
+                # ACP agents do not support hook_config — the subprocess
+                # manages its own tool lifecycle. Leave unset.
+                'hook_config': None,
+            }
+        )
+
+        return conv_settings.create_request(
+            StartACPConversationRequest, agent=agent
+        )
 
     async def _process_pending_messages(
         self,
