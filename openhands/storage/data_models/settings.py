@@ -25,14 +25,29 @@ from openhands.core.config.utils import load_openhands_config
 # Note: ``AgentSettings`` is retained as a deprecated v1.17-compat class
 # alias for ``LLMAgentSettings``. ``AgentSettingsConfig`` is the union
 # type for fields that may hold either variant — use that in new code.
-from openhands.sdk.settings import (  # type: ignore[attr-defined]
-    ACPAgentSettings,
-    AgentSettingsConfig,
-    ConversationSettings,
-    LLMAgentSettings,
-    default_agent_settings,
-    validate_agent_settings,
-)
+from openhands.sdk.settings import ConversationSettings, LLMAgentSettings
+
+try:
+    from openhands.sdk.settings import (  # type: ignore[attr-defined]
+        ACPAgentSettings,
+        AgentSettingsConfig,
+        default_agent_settings,
+        validate_agent_settings,
+    )
+except ImportError:
+    # Fallback for SDK 1.17.0 which doesn't have the new discriminated union
+    # types. ACPAgentSettings is stubbed as LLMAgentSettings, and the
+    # validate/default helpers use LLMAgentSettings directly.
+    ACPAgentSettings = LLMAgentSettings  # type: ignore[misc, assignment]
+    AgentSettingsConfig = LLMAgentSettings  # type: ignore[misc, assignment]
+
+    def default_agent_settings() -> LLMAgentSettings:  # type: ignore[misc]
+        return LLMAgentSettings()
+
+    def validate_agent_settings(data: dict) -> LLMAgentSettings:  # type: ignore[misc]
+        return LLMAgentSettings.model_validate(data)
+
+
 from openhands.storage.data_models.secrets import Secrets
 from openhands.utils.jsonpatch_compat import deep_merge
 

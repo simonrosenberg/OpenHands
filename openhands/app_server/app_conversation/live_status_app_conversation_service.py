@@ -98,7 +98,18 @@ from openhands.sdk.secret import LookupSecret, StaticSecret
 # ``ACPAgentSettings`` is new in the discriminated-union rework. Pre-commit
 # mypy pins ``openhands-sdk==1.17.0`` (without this symbol); the editable
 # install exposes it. Remove the ignore once the SDK ships.
-from openhands.sdk.settings import ACPAgentSettings  # type: ignore[attr-defined]
+try:
+    from openhands.sdk.settings import ACPAgentSettings  # type: ignore[attr-defined]
+except ImportError:
+    # Fallback for SDK 1.17.0: ACP paths will never be taken since
+    # ACPAgentSettings won't exist. We define a private sentinel class so
+    # isinstance() checks compile.
+    class _ACPAgentSettingsStub:
+        """Placeholder that will never match any runtime instance."""
+
+        pass
+
+    ACPAgentSettings = _ACPAgentSettingsStub  # type: ignore[misc, assignment]
 from openhands.sdk.utils.paging import page_iterator
 from openhands.sdk.workspace.remote.async_remote_workspace import AsyncRemoteWorkspace
 from openhands.server.types import AppMode
