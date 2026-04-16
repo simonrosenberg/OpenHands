@@ -16,13 +16,17 @@ from pydantic import (
 
 from openhands.core.config.llm_config import LLMConfig
 from openhands.core.config.utils import load_openhands_config
-# The LLM/ACP variant types and the validate/default helpers are new in
-# the discriminated-union rework. Pre-commit mypy pins ``openhands-sdk==1.17.0``
-# (without these symbols); the editable install exposes them. Remove the
-# ignore once the SDK ships.
+# The LLM/ACP variant types, ``AgentSettingsConfig`` union alias, and the
+# validate/default helpers are new in the discriminated-union rework.
+# Pre-commit mypy pins ``openhands-sdk==1.17.0`` (without these symbols);
+# the editable install exposes them. Remove the ignore once the SDK ships.
+#
+# Note: ``AgentSettings`` is retained as a deprecated v1.17-compat class
+# alias for ``LLMAgentSettings``. ``AgentSettingsConfig`` is the union
+# type for fields that may hold either variant — use that in new code.
 from openhands.sdk.settings import (  # type: ignore[attr-defined]
     ACPAgentSettings,
-    AgentSettings,
+    AgentSettingsConfig,
     ConversationSettings,
     LLMAgentSettings,
     default_agent_settings,
@@ -132,7 +136,9 @@ class Settings(BaseModel):
     git_user_name: str | None = None
     git_user_email: str | None = None
     v1_enabled: bool = True
-    agent_settings: AgentSettings = Field(default_factory=default_agent_settings)
+    agent_settings: AgentSettingsConfig = Field(
+        default_factory=default_agent_settings
+    )
     conversation_settings: ConversationSettings = Field(
         default_factory=ConversationSettings
     )
@@ -235,7 +241,9 @@ class Settings(BaseModel):
 
     @field_serializer('agent_settings')
     def agent_settings_serializer(
-        self, agent_settings: AgentSettings, info: SerializationInfo
+        self,
+        agent_settings: LLMAgentSettings | ACPAgentSettings,
+        info: SerializationInfo,
     ) -> dict[str, Any]:
         context = info.context or {}
         if context.get('expose_secrets', False):
@@ -355,7 +363,7 @@ class Settings(BaseModel):
         self.agent_settings.mcp_config = merged_mcp
         return self
 
-    def to_agent_settings(self) -> AgentSettings:
+    def to_agent_settings(self) -> LLMAgentSettings | ACPAgentSettings:
         return self.agent_settings
 
     def get_agent_settings_display(self) -> dict[str, Any]:
