@@ -25,27 +25,30 @@ from openhands.core.config.utils import load_openhands_config
 # Note: ``AgentSettings`` is retained as a deprecated v1.17-compat class
 # alias for ``LLMAgentSettings``. ``AgentSettingsConfig`` is the union
 # type for fields that may hold either variant — use that in new code.
-from openhands.sdk.settings import ConversationSettings, LLMAgentSettings
+from openhands.sdk.settings import ConversationSettings
 
 try:
     from openhands.sdk.settings import (  # type: ignore[attr-defined]
         ACPAgentSettings,
         AgentSettingsConfig,
+        LLMAgentSettings,
         default_agent_settings,
         validate_agent_settings,
     )
 except ImportError:
     # Fallback for SDK 1.17.0 which doesn't have the new discriminated union
-    # types. ACPAgentSettings is stubbed as LLMAgentSettings, and the
-    # validate/default helpers use LLMAgentSettings directly.
-    ACPAgentSettings = LLMAgentSettings  # type: ignore[misc, assignment]
-    AgentSettingsConfig = LLMAgentSettings  # type: ignore[misc, assignment]
+    # types. SDK 1.17.0 uses ``AgentSettings`` instead of ``LLMAgentSettings``.
+    from openhands.sdk.settings import AgentSettings
 
-    def default_agent_settings() -> LLMAgentSettings:  # type: ignore[misc]
-        return LLMAgentSettings()
+    LLMAgentSettings = AgentSettings  # type: ignore[misc, assignment]
+    ACPAgentSettings = AgentSettings  # type: ignore[misc, assignment]
+    AgentSettingsConfig = AgentSettings  # type: ignore[misc, assignment]
 
-    def validate_agent_settings(data: dict) -> LLMAgentSettings:  # type: ignore[misc]
-        return LLMAgentSettings.model_validate(data)
+    def default_agent_settings() -> AgentSettings:  # type: ignore[misc]
+        return AgentSettings()
+
+    def validate_agent_settings(data: dict) -> AgentSettings:  # type: ignore[misc]
+        return AgentSettings.model_validate(data)
 
 
 from openhands.storage.data_models.secrets import Secrets
