@@ -3118,16 +3118,111 @@ class TestAcpProviderEnv:
         env = LiveStatusAppConversationService._acp_provider_env(s)
         assert env == {}
 
-    def test_partial_base_url_only(self, _acp_settings_factory):
-        """base_url alone still gets forwarded (supports key-in-env setups)."""
+    def test_base_url_alone_is_ignored(self, _acp_settings_factory):
+        """base_url without api_key → no plumbing.
+
+        The LLM settings page persists a provider-default ``base_url``
+        as soon as the user picks a model. Plumbing that default would
+        clobber a real proxy URL set via ``OH_AGENT_SERVER_ENV`` and
+        silently route the ACP subprocess to the wrong endpoint with a
+        proxy key it can't use. Require an explicit ``api_key`` as the
+        user's opt-in signal before plumbing anything.
+        """
         s = _acp_settings_factory(
-            acp_server='claude-code', base_url='https://proxy.example.com'
+            acp_server='claude-code', base_url='https://api.anthropic.com'
         )
         env = LiveStatusAppConversationService._acp_provider_env(s)
-        assert env == {'ANTHROPIC_BASE_URL': 'https://proxy.example.com'}
+        assert env == {}
 
-    def test_partial_api_key_only(self, _acp_settings_factory):
-        """api_key alone still gets forwarded (supports provider-default URLs)."""
+    def test_api_key_alone_is_plumbed(self, _acp_settings_factory):
+        """api_key alone → plumb the key (provider default URL comes
+        from the SDK / OS env, not from us)."""
         s = _acp_settings_factory(acp_server='claude-code', api_key='sk-test')
         env = LiveStatusAppConversationService._acp_provider_env(s)
         assert env == {'ANTHROPIC_API_KEY': 'sk-test'}
+
+
+class TestAgentKindConversationUrl:
+    """Regression tests for the conversation_url / live-status route
+    dispatch — ``/api/conversations`` for LLM, ``/api/acp/conversations``
+    for ACP. Getting this wrong makes ACP conversations look stuck on
+    "Loading" because the frontend polls the wrong route and 404s."""
+
+    def test_build_conversation_url_llm(self):
+        from uuid import UUID
+        from openhands.app_server.app_conversation.app_conversation_models import (
+            AppConversationInfo,
+        )
+        from openhands.app_server.sandbox.sandbox_models import (
+            AGENT_SERVER,
+            ExposedUrl,
+            SandboxInfo,
+            SandboxStatus,
+        )
+
+        # Instantiate a stripped service (no deps needed for _build_conversation).
+        service = LiveStatusAppConversationService.__new__(
+            LiveStatusAppConversationService
+        )
+
+        info = AppConversationInfo(
+            id=UUID('11111111-1111-1111-1111-111111111111'),
+            created_by_user_id=None,
+            sandbox_id='sandbox-a',
+            agent_kind='llm',
+        )
+        sandbox = SandboxInfo(
+            id='sandbox-a',
+            created_by_user_id=None,
+            sandbox_spec_id='spec',
+            status=SandboxStatus.RUNNING,
+            session_api_key='sk',
+            exposed_urls=[
+                ExposedUrl(name=AGENT_SERVER, url='http://localhost:8000', port=8000),
+            ],
+        )
+        result = service._build_conversation(info, sandbox, None)
+        assert result is not None
+        assert result.conversation_url == (
+            'http://localhost:8000/api/conversations/'
+            '11111111111111111111111111111111'
+        )
+
+    def test_build_conversation_url_acp(self):
+        from uuid import UUID
+        from openhands.app_server.app_conversation.app_conversation_models import (
+            AppConversationInfo,
+        )
+        from openhands.app_server.sandbox.sandbox_models import (
+            AGENT_SERVER,
+            ExposedUrl,
+            SandboxInfo,
+            SandboxStatus,
+        )
+
+        service = LiveStatusAppConversationService.__new__(
+            LiveStatusAppConversationService
+        )
+
+        info = AppConversationInfo(
+            id=UUID('22222222-2222-2222-2222-222222222222'),
+            created_by_user_id=None,
+            sandbox_id='sandbox-a',
+            agent_kind='acp',
+        )
+        sandbox = SandboxInfo(
+            id='sandbox-a',
+            created_by_user_id=None,
+            sandbox_spec_id='spec',
+            status=SandboxStatus.RUNNING,
+            session_api_key='sk',
+            exposed_urls=[
+                ExposedUrl(name=AGENT_SERVER, url='http://localhost:8000', port=8000),
+            ],
+        )
+        result = service._build_conversation(info, sandbox, None)
+        assert result is not None
+        assert result.conversation_url == (
+            'http://localhost:8000/api/acp/conversations/'
+            '22222222222222222222222222222222'
+        )
