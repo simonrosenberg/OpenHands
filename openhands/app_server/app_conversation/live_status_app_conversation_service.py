@@ -1406,6 +1406,57 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         # prompts, LLM metadata, skills) applied after create_agent().
         return conv_settings.create_request(StartConversationRequest, agent=agent)
 
+    @staticmethod
+    def _acp_provider_env(settings: ACPAgentSettings) -> dict[str, str]:
+        """Translate UI-saved LLM credentials into the provider env vars
+        the chosen ACP subprocess expects.
+
+        Each ACP server reads auth + gateway config from environment
+        variables in its native provider's namespace:
+
+        - ``claude-code`` → ``ANTHROPIC_API_KEY`` / ``ANTHROPIC_BASE_URL``
+        - ``codex``       → ``OPENAI_API_KEY``   / ``OPENAI_BASE_URL``
+        - ``gemini-cli``  → ``GEMINI_API_KEY``   / ``GEMINI_BASE_URL``
+
+        ``custom`` receives nothing synthesized — the user is on their
+        own via ``acp_env``.
+
+        Returns an empty dict when neither ``llm.api_key`` nor
+        ``llm.base_url`` is set. Callers should ``setdefault`` the
+        resulting keys into a user-supplied ``acp_env`` so explicit
+        overrides win.
+        """
+        llm = settings.llm
+        api_key: str | None = None
+        if llm.api_key is not None:
+            raw = llm.api_key
+            api_key = (
+                raw.get_secret_value() if hasattr(raw, 'get_secret_value') else str(raw)
+            )
+        base_url = llm.base_url or None
+
+        if not api_key and not base_url:
+            return {}
+
+        env: dict[str, str] = {}
+        if settings.acp_server == 'claude-code':
+            if api_key:
+                env['ANTHROPIC_API_KEY'] = api_key
+            if base_url:
+                env['ANTHROPIC_BASE_URL'] = base_url
+        elif settings.acp_server == 'codex':
+            if api_key:
+                env['OPENAI_API_KEY'] = api_key
+            if base_url:
+                env['OPENAI_BASE_URL'] = base_url
+        elif settings.acp_server == 'gemini-cli':
+            if api_key:
+                env['GEMINI_API_KEY'] = api_key
+            if base_url:
+                env['GEMINI_BASE_URL'] = base_url
+        # 'custom' → nothing: the user already set acp_command + acp_env.
+        return env
+
     async def _build_acp_start_conversation_request(
         self,
         user: UserInfo,
@@ -1421,9 +1472,22 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         loading, system-prompt overrides, LLM tracing metadata,
         hook-config discovery in the workspace) is deliberately
         skipped here.
+
+        Credentials set in the GUI's LLM section (``llm.api_key`` /
+        ``llm.base_url``) are translated into the provider-specific env
+        vars the ACP subprocess expects and merged into ``acp_env``.
+        User-supplied ``acp_env`` entries take precedence so power
+        users can still override.
         """
         acp_settings = user.agent_settings
         assert isinstance(acp_settings, ACPAgentSettings)
+
+        # Merge UI-saved credentials into acp_env. User-supplied entries
+        # win (they come second).
+        derived_env = self._acp_provider_env(acp_settings)
+        if derived_env:
+            merged_env = {**derived_env, **dict(acp_settings.acp_env)}
+            acp_settings = acp_settings.model_copy(update={'acp_env': merged_env})
 
         agent = acp_settings.create_agent()
 
