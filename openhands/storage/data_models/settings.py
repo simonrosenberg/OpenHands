@@ -365,9 +365,19 @@ class Settings(BaseModel):
         )
 
     def merge_with_config_settings(self) -> 'Settings':
-        """Merge config.toml MCP settings with stored SDK agent_settings."""
+        """Merge config.toml MCP settings with stored SDK agent_settings.
+
+        MCP config only lives on ``LLMAgentSettings`` — the ACP
+        subprocess manages its own MCP via the ACP server, so when
+        ``agent_kind='acp'`` there's nothing to merge and we skip.
+        """
+        if not isinstance(self.agent_settings, LLMAgentSettings):
+            return self
+
         config_settings = Settings.from_config()
         if not config_settings:
+            return self
+        if not isinstance(config_settings.agent_settings, LLMAgentSettings):
             return self
 
         merged_mcp = _merge_sdk_mcp_configs(
