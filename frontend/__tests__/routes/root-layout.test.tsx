@@ -56,6 +56,7 @@ vi.mock("#/hooks/use-invitation", () => ({
 vi.mock("#/utils/feature-flags", () => ({
   ENABLE_ONBOARDING: () => true,
   ENABLE_AUTOMATIONS: () => false,
+  ENABLE_ACP: () => false,
 }));
 
 function LoginStub() {
